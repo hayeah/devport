@@ -43,17 +43,19 @@ All state lives under `~/.local/share/devport/`:
 ```json
 {
   "hash": "b7d2f1a8c3",
+  "hashid": "b7d",
   "key": "myapp",
-  "svc": "b7d",
   "port": 19000,
+  "tailnet": false,
   "cwd": "/Users/me/projects/myapp",
   "cmd": ["npm", "run", "dev"],
   "last_up": "2026-02-22T10:30:00Z"
 }
 ```
 
+- `hashid` — shortest unique hash prefix (frozen at registration time), used for short references and Tailscale service naming
 - `key` — optional, only present when `--key` was used
-- `svc` — the hash prefix registered with Tailscale (frozen at registration time)
+- `tailnet` — whether the service is exposed via Tailscale
 - `port` — reserved port (persists across stop/restart, only freed on `rm`)
 
 The JSON file **is** the reservation. As long as it exists, the port and svc prefix are taken — even if the supervisor isn't running. Written on first `devport run`, `last_up` updated every 30s while the supervisor runs. Only deleted by `devport rm`.
@@ -157,18 +159,18 @@ locks/b7d2f1a8c3.lock
 
 ## CLI Interface
 
-### `devport run [--key NAME] <cmd> [args...]`
+### `devport run [--key NAME] [--tailnet] [--port-env PORT] [--proto https] <cmd> [args...]`
 
 Starts a **supervisor process** in the foreground that manages the child service.
 
 - Compute hash from `--key` or from `<cwd> <cmd>`
 - Acquire `flock()` on `locks/<hash>.lock` — if already held, print existing port/URL and exit (idempotent)
-- If `services/<hash>.json` exists, reuse stored port and svc prefix
-- If not, hold registration lock → assign port → compute svc prefix → register Tailscale → write JSON → release lock
+- If `services/<hash>.json` exists, reuse stored port and hashid
+- If not, hold registration lock → assign port → compute hashid → write JSON → release lock
+- If `--tailnet`, register Tailscale service and approve via API, set `"tailnet": true` in JSON
 - Update `last_up` periodically (every 30s) while the supervisor is running
-- Set `PORT=<port>` in the child's environment
+- Set `PORT=<port>` (or custom `--port-env`) in the child's environment; `$PORT` in args is expanded
 - Spawn the child process, inheriting the current shell environment
-- Register Tailscale service (see below)
 - **The supervisor stays in the foreground**, relaying child stdout/stderr
 - **Signal handling:**
   - `SIGINT` (ctrl-c) — kill child, release lock (automatic on exit), exit
@@ -193,42 +195,67 @@ Starts a **supervisor process** in the foreground that manages the child service
 - Send `SIGHUP` to the supervisor
 - Supervisor gracefully restarts the child (SIGHUP, wait, hard-kill, respawn)
 
+### `devport tailup <hash> [--proto https]`
+
+- Resolve hash prefix, load service JSON
+- Run `tailscale serve --service svc:<hashid> http://localhost:<port>`
+- Approve via Tailscale API (`POST /api/v2/tailnet/.../services/.../device/.../approved`)
+- Set `"tailnet": true` in service JSON
+
+### `devport taildown <hash>`
+
+- Resolve hash prefix, load service JSON
+- Run `tailscale serve clear svc:<hashid>`
+- Set `"tailnet": false` in service JSON
+
 ### `devport rm <hash>`
 
 - If running, kill the supervisor + child
-- Tear down the Tailscale service
+- Unconditionally tear down Tailscale service (`tailscale serve clear svc:<hashid>`)
 - Delete `services/<hash>.json` and lock files (frees the port)
 
 ## Tailscale Integration
 
-On `devport run`, after the port is assigned:
+Tailscale exposure is **opt-in** via the `--tailnet` flag on `devport run`, or via `devport tailup` / `devport taildown` subcommands. The service JSON tracks whether tailnet is enabled.
 
-- The service name uses the **shortest unambiguous hash prefix** (e.g. `b7d` if unique)
-- Register: `tailscale serve --service svc:b7d https:443 http://localhost:<port>`
-- The service becomes reachable at `https://b7d.tailb63537.ts.net`
-- If a new service is added that makes an existing prefix ambiguous, the existing service's Tailscale name is **not** changed — prefixes are only computed at registration time
-- Requires the host to be tagged (e.g. `tag:services` — already configured on m4mini)
-
-On `devport rm`:
-
-- Tear down: `tailscale serve --service svc:<hash-prefix> https:443 http://localhost:<port> off`
-- The hash prefix used for tear down is stored in the service JSON so it matches what was registered
-
-### ACL Auto-Approval
-
-The tailnet policy needs an auto-approver so devport can register services without manual approval:
-
-```jsonc
+**Service metadata** includes a `tailnet` boolean:
+```json
 {
-  "autoApprovers": {
-    "services": {
-      "svc:*": ["tag:services"]
-    }
-  }
+  "hash": "b7d2f1a8c3",
+  "hashid": "b7d",
+  "key": "myapp",
+  "port": 19000,
+  "tailnet": true,
+  ...
 }
 ```
 
-(Or scope it to a `tag:dev` tag if tighter control is desired.)
+### Enabling Tailnet
+
+- `devport run --tailnet` — registers Tailscale service at startup, sets `"tailnet": true`
+- `devport tailup <hash>` — enables tailnet for an existing service (registers serve + approves via API, sets `"tailnet": true`)
+- `devport taildown <hash>` — disables tailnet for an existing service (tears down serve, sets `"tailnet": false`)
+- `devport rm <hash>` — if `tailnet` is true, tears down Tailscale service before deleting
+
+### Tailscale Serve
+
+- Service name: `svc:<hashid>` (the shortest unique hash prefix, frozen at registration)
+- Register: `tailscale serve --service svc:<hashid> http://localhost:<port>`
+- The service becomes reachable at `https://<hashid>.tailb63537.ts.net`
+- For TCP: `tailscale serve --service svc:<hashid> --tcp <port> tcp://localhost:<port>`
+- Requires the host to be tagged (e.g. `tag:services` — already configured on m4mini)
+
+### API-Based Approval
+
+Tailscale Services require admin approval. The ACL `autoApprovers` doesn't support wildcards (`svc:*`), so devport approves services programmatically via the Tailscale API:
+
+```
+POST /api/v2/tailnet/{tailnet}/services/{serviceName}/device/{deviceId}/approved
+```
+
+- Requires `TAILSCALE_API_KEY` in `~/.env.secret`
+- Device ID is obtained from `tailscale status --self --json`
+- Called automatically after `tailscale serve` registration
 
 ## Idempotency
 
@@ -271,44 +298,47 @@ yup
 $ devport run --key myapp -- npm run dev
 {
   "hash": "b7d2f1a8c3",
+  "hashid": "b7d",
   "key": "myapp",
-  "svc": "b7d",
   "port": 19000,
-  "url": "https://b7d.tailb63537.ts.net",
+  "tailnet": false,
   "cwd": "/Users/me/projects/myapp",
   "cmd": ["npm", "run", "dev"]
 }
 
-# No key — hash derived from cwd + cmd
-$ devport run -- go run ./cmd/server
+# With tailnet exposure
+$ devport run --key api --tailnet -- go run ./cmd/server
 {
   "hash": "a3f7c91b2d",
-  "svc": "a3f",
+  "hashid": "a3f",
+  "key": "api",
   "port": 19001,
-  "url": "https://a3f.tailb63537.ts.net",
+  "tailnet": true,
   "cwd": "/Users/me/projects/api",
   "cmd": ["go", "run", "./cmd/server"]
 }
 
 # List services — JSON array
-$ devport ls --active
+$ devport ls
 [
   {
     "hash": "b7d2f1a8c3",
+    "hashid": "b7d",
     "key": "myapp",
-    "svc": "b7d",
     "status": "running",
     "port": 19000,
-    "url": "https://b7d.tailb63537.ts.net",
+    "tailnet": false,
     "cwd": "/Users/me/projects/myapp",
     "cmd": ["npm", "run", "dev"],
     "last_up": "2026-02-22T10:30:00Z"
   },
   {
     "hash": "a3f7c91b2d",
-    "svc": "a3f",
-    "status": "stopped",
+    "hashid": "a3f",
+    "key": "api",
+    "status": "running",
     "port": 19001,
+    "tailnet": true,
     "url": "https://a3f.tailb63537.ts.net",
     "cwd": "/Users/me/projects/api",
     "cmd": ["go", "run", "./cmd/server"],
@@ -316,10 +346,14 @@ $ devport ls --active
   }
 ]
 
+# Enable/disable tailnet for an existing service
+$ devport tailup b7d
+$ devport taildown a3f
+
 # Always use hash prefix to refer to services
 $ devport restart a3f
 $ devport stop b7d
 
-# Remove entirely (frees port, tears down Tailscale service)
+# Remove entirely (frees port, tears down Tailscale if enabled)
 $ devport rm b7d
 ```

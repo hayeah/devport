@@ -9,13 +9,14 @@ import (
 )
 
 type Service struct {
-	Hash   string    `json:"hash"`
-	HashID string    `json:"hashid"`
-	Key    string    `json:"key,omitempty"`
-	Port   int       `json:"port"`
-	CWD    string    `json:"cwd"`
-	CMD    []string  `json:"cmd"`
-	LastUp time.Time `json:"last_up"`
+	Hash    string    `json:"hash"`
+	HashID  string    `json:"hashid"`
+	Key     string    `json:"key,omitempty"`
+	Port    int       `json:"port"`
+	Tailnet bool      `json:"tailnet"`
+	CWD     string    `json:"cwd"`
+	CMD     []string  `json:"cmd"`
+	LastUp  time.Time `json:"last_up"`
 }
 
 // ComputeHash produces a 10-char hex hash.

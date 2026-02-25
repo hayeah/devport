@@ -40,6 +40,14 @@ func runRM(cmd *cobra.Command, args []string) error {
 		syscall.Kill(pid, syscall.SIGTERM)
 	}
 
+	// Tear down Tailscale if enabled
+	if svc.Tailnet {
+		fmt.Printf("clearing tailscale service svc:%s...\n", svc.HashID)
+		if err := devport.TailscaleClear(svc.HashID); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: tailscale clear failed: %v\n", err)
+		}
+	}
+
 	// Delete files
 	if err := store.Delete(hash); err != nil {
 		return fmt.Errorf("delete: %w", err)

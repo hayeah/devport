@@ -13,6 +13,7 @@ import (
 var (
 	flagKey     string
 	flagPortEnv string
+	flagTailnet bool
 )
 
 var runCmd = &cobra.Command{
@@ -25,6 +26,7 @@ var runCmd = &cobra.Command{
 func init() {
 	runCmd.Flags().StringVar(&flagKey, "key", "", "Named key for the service (otherwise derived from cwd+cmd)")
 	runCmd.Flags().StringVar(&flagPortEnv, "port-env", "PORT", "Environment variable name for the port")
+	runCmd.Flags().BoolVar(&flagTailnet, "tailnet", false, "Expose service via Tailscale")
 	rootCmd.AddCommand(runCmd)
 }
 
@@ -61,6 +63,16 @@ func runRun(cmd *cobra.Command, args []string) error {
 		// New service — register under global lock
 		svc, err = registerService(hash, cwd, args)
 		if err != nil {
+			return err
+		}
+	} else if flagTailnet && !svc.Tailnet {
+		// Existing service, --tailnet requested but not yet enabled
+		fmt.Fprintf(os.Stderr, "devport: enabling tailnet for %s...\n", svc.HashID)
+		if err := devport.TailscaleUp(svc.HashID, svc.Port); err != nil {
+			return fmt.Errorf("tailscale up: %w", err)
+		}
+		svc.Tailnet = true
+		if err := store.Save(svc); err != nil {
 			return err
 		}
 	}
@@ -111,14 +123,23 @@ func registerService(hash, cwd string, args []string) (*devport.Service, error) 
 	hashID := devport.ShortestUniquePrefix(hash, allHashes)
 
 	svc := &devport.Service{
-		Hash:   hash,
-		HashID: hashID,
-		Key:    flagKey,
-		Port:   port,
-		CWD:    cwd,
-		CMD:    args,
-		LastUp: time.Now(),
+		Hash:    hash,
+		HashID:  hashID,
+		Key:     flagKey,
+		Port:    port,
+		Tailnet: flagTailnet,
+		CWD:     cwd,
+		CMD:     args,
+		LastUp:  time.Now(),
 	}
+
+	if flagTailnet {
+		fmt.Fprintf(os.Stderr, "devport: enabling tailnet for %s...\n", hashID)
+		if err := devport.TailscaleUp(hashID, port); err != nil {
+			return nil, fmt.Errorf("tailscale up: %w", err)
+		}
+	}
+
 	if err := store.Save(svc); err != nil {
 		return nil, err
 	}
