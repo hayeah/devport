@@ -114,13 +114,21 @@ devport stop b7d
 
 Sends SIGTERM to the supervisor. Port stays reserved — use `rm` to free it.
 
-### `devport restart` — Restart a service's child process
+### `devport restart` — Full stop and re-launch in tmux
 
 ```bash
 devport restart b7d
 ```
 
-Sends SIGHUP to the supervisor. The supervisor gracefully restarts the child (SIGTERM → wait 5s → SIGKILL → respawn). Service stays supervised throughout.
+Stops the running supervisor, waits for it to exit, then re-spawns it in a tmux window using the stored state (cmd, cwd, key, env snapshot). No flags needed — everything is read from the service record.
+
+### `devport sigup` — Restart child in-place
+
+```bash
+devport sigup b7d
+```
+
+Sends SIGHUP to the supervisor. The supervisor gracefully restarts the child (SIGTERM → wait 5s → SIGKILL → respawn) without exiting. The tmux window stays open and the port stays live throughout.
 
 ### `devport rm` — Remove a service entirely
 
