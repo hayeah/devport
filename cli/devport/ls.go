@@ -15,7 +15,8 @@ type ServiceInfo struct {
 	HashID  string   `json:"hashid"`
 	Key     string   `json:"key,omitempty"`
 	Status  string   `json:"status"`
-	Port    int      `json:"port"`
+	Port    int      `json:"port,omitempty"`
+	NoPort  bool     `json:"no_port,omitempty"`
 	Tailnet bool     `json:"tailnet"`
 	URL     string   `json:"url,omitempty"`
 	CWD     string   `json:"cwd"`
@@ -52,6 +53,7 @@ func runLS(cmd *cobra.Command, args []string) error {
 			Key:     svc.Key,
 			Status:  status,
 			Port:    svc.Port,
+			NoPort:  svc.NoPort,
 			Tailnet: svc.Tailnet,
 			CWD:     svc.CWD,
 			CMD:     svc.CMD,

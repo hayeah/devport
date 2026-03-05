@@ -14,6 +14,7 @@ var (
 	flagKey     string
 	flagPortEnv string
 	flagTailnet bool
+	flagNoPort  bool
 )
 
 var runCmd = &cobra.Command{
@@ -27,6 +28,7 @@ func init() {
 	runCmd.Flags().StringVar(&flagKey, "key", "", "Named key for the service (otherwise derived from cwd+cmd)")
 	runCmd.Flags().StringVar(&flagPortEnv, "port-env", "PORT", "Environment variable name for the port")
 	runCmd.Flags().BoolVar(&flagTailnet, "tailnet", false, "Expose service via Tailscale")
+	runCmd.Flags().BoolVar(&flagNoPort, "no-port", false, "Do not allocate a port for this service")
 	rootCmd.AddCommand(runCmd)
 }
 
@@ -83,7 +85,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 3: Run supervisor
-	env := append(os.Environ(), fmt.Sprintf("%s=%d", flagPortEnv, svc.Port))
+	env := os.Environ()
+	if !flagNoPort {
+		env = append(env, fmt.Sprintf("%s=%d", flagPortEnv, svc.Port))
+	}
 
 	supervisor := devport.NewSupervisor(devport.SupervisorConfig{
 		CMD: args,
@@ -110,9 +115,12 @@ func registerService(hash, cwd string, args []string) (*devport.Service, error) 
 		return nil, err
 	}
 
-	port, err := devport.AllocatePort(all)
-	if err != nil {
-		return nil, err
+	var port int
+	if !flagNoPort {
+		port, err = devport.AllocatePort(all)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Compute shortest unique prefix
@@ -127,9 +135,11 @@ func registerService(hash, cwd string, args []string) (*devport.Service, error) 
 		HashID:  hashID,
 		Key:     flagKey,
 		Port:    port,
+		NoPort:  flagNoPort,
 		Tailnet: flagTailnet,
 		CWD:     cwd,
 		CMD:     args,
+		Env:     os.Environ(),
 		LastUp:  time.Now(),
 	}
 

@@ -13,10 +13,25 @@ type Service struct {
 	HashID  string    `json:"hashid"`
 	Key     string    `json:"key,omitempty"`
 	Port    int       `json:"port"`
+	NoPort  bool      `json:"no_port,omitempty"`
 	Tailnet bool      `json:"tailnet"`
 	CWD     string    `json:"cwd"`
 	CMD     []string  `json:"cmd"`
+	Env     []string  `json:"env,omitempty"`
 	LastUp  time.Time `json:"last_up"`
+}
+
+// TmuxSession returns the shared devport tmux session name.
+func (s *Service) TmuxSession() string {
+	return "devport"
+}
+
+// TmuxWindow returns the window name for this service within the devport session.
+func (s *Service) TmuxWindow() string {
+	if s.Key != "" {
+		return s.Key
+	}
+	return s.Hash
 }
 
 // ComputeHash produces a 10-char hex hash.
