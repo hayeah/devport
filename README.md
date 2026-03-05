@@ -122,13 +122,18 @@ devport restart b7d
 
 Stops the running supervisor, waits for it to exit, then re-spawns it in a tmux window using the stored state (cmd, cwd, key, env snapshot). No flags needed — everything is read from the service record.
 
-### `devport sigup` — Restart child in-place
+### `devport signal` — Send a signal to a running supervisor
 
 ```bash
-devport sigup b7d
+# Default: SIGHUP — supervisor restarts child in-place
+devport signal b7d
+
+# Send a specific signal by number
+devport signal -s 10 b7d   # SIGUSR1
+devport signal -s 12 b7d   # SIGUSR2
 ```
 
-Sends SIGHUP to the supervisor. The supervisor gracefully restarts the child (SIGTERM → wait 5s → SIGKILL → respawn) without exiting. The tmux window stays open and the port stays live throughout.
+Sends a signal directly to the supervisor process. The default SIGHUP triggers a graceful child restart (SIGTERM → wait 5s → SIGKILL → respawn) without stopping the supervisor. The tmux window stays open and the port stays live throughout.
 
 ### `devport rm` — Remove a service entirely
 
