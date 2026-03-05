@@ -28,18 +28,26 @@ func runSignal(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	pid, err := devport.HolderPID(store.LockPath(hash))
+	supervisorPID, err := devport.HolderPID(store.LockPath(hash))
 	if err != nil {
 		return fmt.Errorf("check lock holder: %w", err)
 	}
-	if pid == 0 {
+	if supervisorPID == 0 {
 		return fmt.Errorf("service %s is not running", args[0])
 	}
 
-	sig := syscall.Signal(flagSignal)
-	if err := syscall.Kill(pid, sig); err != nil {
-		return fmt.Errorf("kill %d: %w", pid, err)
+	childPID, err := devport.ChildPID(supervisorPID)
+	if err != nil {
+		return fmt.Errorf("find child process: %w", err)
 	}
-	fmt.Printf("sent signal %d to pid %d\n", flagSignal, pid)
+	if childPID == 0 {
+		return fmt.Errorf("service %s has no child process (still starting?)", args[0])
+	}
+
+	sig := syscall.Signal(flagSignal)
+	if err := syscall.Kill(childPID, sig); err != nil {
+		return fmt.Errorf("kill %d: %w", childPID, err)
+	}
+	fmt.Printf("sent signal %d to pid %d\n", flagSignal, childPID)
 	return nil
 }

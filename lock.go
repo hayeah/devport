@@ -77,3 +77,21 @@ func HolderPID(path string) (int, error) {
 	}
 	return pid, nil
 }
+
+// ChildPID returns the PID of the direct child of the given parent process, or 0 if none.
+func ChildPID(parentPID int) (int, error) {
+	out, err := exec.Command("pgrep", "-P", fmt.Sprintf("%d", parentPID)).Output()
+	if err != nil {
+		// pgrep exits non-zero when no children found
+		return 0, nil
+	}
+	lines := strings.Fields(strings.TrimSpace(string(out)))
+	if len(lines) == 0 {
+		return 0, nil
+	}
+	var pid int
+	if _, err := fmt.Sscanf(lines[0], "%d", &pid); err != nil {
+		return 0, err
+	}
+	return pid, nil
+}
