@@ -7,7 +7,7 @@ description: Manage dev services with stable port assignment and process supervi
 
 Stable port assignment and process supervision for dev services on shared dev machines.
 
-Each service gets a unique port in 19000-19999, persisted across restarts. No central daemon — each `devport run` is its own supervisor. Opt-in Tailscale integration exposes services to your tailnet.
+Each service gets a unique port in 19000-19999, persisted across restarts. No central daemon — each supervisor runs in a window of a shared `devport` tmux session. Opt-in Tailscale integration exposes services to your tailnet.
 
 ## Why
 
@@ -28,40 +28,64 @@ go build -o devport ./cli/devport
 
 ## Commands
 
-### `devport run` — Start a supervised service
+### `devport start` — Start a service in the background (recommended)
+
+The primary way to run services. Launches the supervisor in a dedicated window of the shared `devport` tmux session and returns immediately.
 
 ```bash
 # Named service — identity derived from key
-devport run --key myapp -- npm run dev
+devport start --key myapp -- npm run dev
 
 # Unnamed service — identity derived from cwd + cmd
-devport run -- go run ./cmd/server
+devport start -- go run ./cmd/server
 
 # Use $PORT in command args (quote to prevent shell expansion)
-devport run -- python3 -m http.server '$PORT'
+devport start -- python3 -m http.server '$PORT'
 
 # Custom port env var name (default is PORT)
-devport run --port-env VITE_PORT --key frontend -- npm run dev
+devport start --port-env VITE_PORT --key frontend -- npm run dev
+
+# Service with no port (background worker, compiler, etc.)
+devport start --no-port --key watcher -- watchexec -e go go build ./...
 
 # With Tailscale exposure
-devport run --key api --tailnet -- go run ./cmd/server
+devport start --key api --tailnet -- go run ./cmd/server
 ```
 
-Outputs service metadata as JSON to stdout:
+Prints service metadata as JSON, then returns. The service runs in a tmux window named after the key (or hash):
 
-```json
-{
-  "hash": "b7d2f1a8c3",
-  "hashid": "b7d",
-  "key": "myapp",
-  "port": 19000,
-  "tailnet": false,
-  "cwd": "/Users/me/projects/myapp",
-  "cmd": ["npm", "run", "dev"]
-}
+```
+devport session
+  ├── myapp          ← devport start --key myapp
+  ├── frontend       ← devport start --key frontend
+  └── b7d2f1a8c3     ← devport start (no key)
 ```
 
 **Idempotent**: if the service is already running, prints existing info and exits — no duplicate supervisor.
+
+**Env snapshot**: captures `os.Environ()` at registration so the service can be reliably restarted from any shell.
+
+### `devport attach` — Attach to a running service
+
+```bash
+# Interactive picker — fzf over all running service windows
+devport attach
+
+# Jump directly to a specific service by hash prefix
+devport attach b7d
+```
+
+If already inside tmux, switches to the service window (`switch-client`). Otherwise attaches to the devport session at that window.
+
+### `devport run` — Start a supervised service in the foreground
+
+Runs the supervisor in the current terminal, blocking until stopped. Use this inside an existing tmux window or in environments where you manage your own process lifecycle (CI, systemd, etc.). `devport start` calls `devport run` internally.
+
+```bash
+devport run --key myapp -- npm run dev
+devport run -- go run ./cmd/server
+devport run --no-port --key worker -- python3 worker.py
+```
 
 **Signal handling while running:**
 - `SIGINT` / `SIGTERM` — kill child, exit supervisor
@@ -79,7 +103,7 @@ devport ls
 devport ls --active
 ```
 
-Output fields: `hash`, `hashid`, `key`, `status` (running/stopped/unknown), `port`, `tailnet`, `url`, `cwd`, `cmd`, `last_up`.
+Output fields: `hash`, `hashid`, `key`, `status` (running/stopped/unknown), `port`, `no_port`, `tailnet`, `url`, `cwd`, `cmd`, `last_up`.
 
 ### `devport stop` — Stop a service
 
