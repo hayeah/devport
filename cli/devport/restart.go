@@ -12,7 +12,7 @@ import (
 )
 
 var restartCmd = &cobra.Command{
-	Use:   "restart <hash-prefix>",
+	Use:   "restart <target>",
 	Short: "Stop a service and re-launch it in tmux from stored state",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runRestart,
@@ -23,15 +23,11 @@ func init() {
 }
 
 func runRestart(cmd *cobra.Command, args []string) error {
-	hash, err := store.ResolvePrefix(args[0])
+	svc, err := store.Resolve(args[0])
 	if err != nil {
 		return err
 	}
-
-	svc, err := store.Load(hash)
-	if err != nil {
-		return fmt.Errorf("load service: %w", err)
-	}
+	hash := svc.Hash
 
 	// Stop if running
 	pid, err := devport.HolderPID(store.LockPath(hash))

@@ -2,19 +2,55 @@ package devport
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
+
+// Resolve looks up a service by target, trying in order: key, port, hash prefix.
+func (s *Store) Resolve(target string) (*Service, error) {
+	services, err := s.All()
+	if err != nil {
+		return nil, err
+	}
+
+	// Try key match
+	for _, svc := range services {
+		if svc.Key != "" && svc.Key == target {
+			return svc, nil
+		}
+	}
+
+	// Try hash prefix
+	hash, prefixErr := s.resolvePrefix(target, services)
+	if prefixErr == nil {
+		return s.Load(hash)
+	}
+
+	// Try port match
+	if port, err := strconv.Atoi(target); err == nil {
+		for _, svc := range services {
+			if svc.Port == port {
+				return svc, nil
+			}
+		}
+	}
+
+	return nil, prefixErr
+}
 
 // ResolvePrefix resolves a hash prefix to a full hash.
 // Returns an error if the prefix is ambiguous or not found.
 func (s *Store) ResolvePrefix(prefix string) (string, error) {
-	if len(prefix) < 3 {
-		return "", fmt.Errorf("prefix too short (minimum 3 characters)")
-	}
-
 	services, err := s.All()
 	if err != nil {
 		return "", err
+	}
+	return s.resolvePrefix(prefix, services)
+}
+
+func (s *Store) resolvePrefix(prefix string, services []*Service) (string, error) {
+	if len(prefix) < 3 {
+		return "", fmt.Errorf("prefix too short (minimum 3 characters)")
 	}
 
 	var matches []string
@@ -26,7 +62,7 @@ func (s *Store) ResolvePrefix(prefix string) (string, error) {
 
 	switch len(matches) {
 	case 0:
-		return "", fmt.Errorf("no service matching prefix %q", prefix)
+		return "", fmt.Errorf("no service matching %q", prefix)
 	case 1:
 		return matches[0], nil
 	default:

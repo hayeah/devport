@@ -13,7 +13,7 @@ import (
 )
 
 var attachCmd = &cobra.Command{
-	Use:   "attach [hash-prefix]",
+	Use:   "attach [target]",
 	Short: "Attach to a running service's tmux session",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runAttach,
@@ -34,13 +34,9 @@ func runAttach(cmd *cobra.Command, args []string) error {
 		}
 		target = "devport:" + window
 	} else {
-		hash, err := store.ResolvePrefix(args[0])
+		svc, err := store.Resolve(args[0])
 		if err != nil {
 			return err
-		}
-		svc, err := store.Load(hash)
-		if err != nil {
-			return fmt.Errorf("load service: %w", err)
 		}
 		target = "devport:" + svc.TmuxWindow()
 	}

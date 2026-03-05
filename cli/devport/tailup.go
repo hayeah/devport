@@ -8,7 +8,7 @@ import (
 )
 
 var tailupCmd = &cobra.Command{
-	Use:   "tailup <hash-prefix>",
+	Use:   "tailup <target>",
 	Short: "Enable Tailscale for a service",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runTailup,
@@ -19,14 +19,9 @@ func init() {
 }
 
 func runTailup(cmd *cobra.Command, args []string) error {
-	hash, err := store.ResolvePrefix(args[0])
+	svc, err := store.Resolve(args[0])
 	if err != nil {
 		return err
-	}
-
-	svc, err := store.Load(hash)
-	if err != nil {
-		return fmt.Errorf("load service: %w", err)
 	}
 
 	if svc.Tailnet {

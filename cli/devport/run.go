@@ -144,8 +144,8 @@ func registerService(hash, cwd string, args []string) (*devport.Service, error) 
 	}
 
 	if flagTailnet {
-		fmt.Fprintf(os.Stderr, "devport: enabling tailnet for %s...\n", hashID)
-		if err := devport.TailscaleUp(hashID, port); err != nil {
+		fmt.Fprintf(os.Stderr, "devport: enabling tailnet for %s...\n", svc.HashID)
+		if err := devport.TailscaleUp(svc.HashID, port); err != nil {
 			return nil, fmt.Errorf("tailscale up: %w", err)
 		}
 	}

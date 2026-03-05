@@ -9,7 +9,7 @@ import (
 )
 
 var stopCmd = &cobra.Command{
-	Use:   "stop <hash-prefix>",
+	Use:   "stop <target>",
 	Short: "Stop a running service",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runStop,
@@ -20,12 +20,12 @@ func init() {
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
-	hash, err := store.ResolvePrefix(args[0])
+	svc, err := store.Resolve(args[0])
 	if err != nil {
 		return err
 	}
 
-	pid, err := devport.HolderPID(store.LockPath(hash))
+	pid, err := devport.HolderPID(store.LockPath(svc.Hash))
 	if err != nil {
 		return fmt.Errorf("check lock holder: %w", err)
 	}

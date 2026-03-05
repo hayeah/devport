@@ -9,7 +9,7 @@ import (
 )
 
 var rmCmd = &cobra.Command{
-	Use:   "rm <hash-prefix>",
+	Use:   "rm <target>",
 	Short: "Remove a service (stop and delete files)",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runRM,
@@ -20,15 +20,11 @@ func init() {
 }
 
 func runRM(cmd *cobra.Command, args []string) error {
-	hash, err := store.ResolvePrefix(args[0])
+	svc, err := store.Resolve(args[0])
 	if err != nil {
 		return err
 	}
-
-	svc, err := store.Load(hash)
-	if err != nil {
-		return fmt.Errorf("load service: %w", err)
-	}
+	hash := svc.Hash
 
 	// Stop if running
 	pid, err := devport.HolderPID(store.LockPath(hash))

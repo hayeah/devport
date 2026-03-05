@@ -8,7 +8,7 @@ import (
 )
 
 var taildownCmd = &cobra.Command{
-	Use:   "taildown <hash-prefix>",
+	Use:   "taildown <target>",
 	Short: "Disable Tailscale for a service",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runTaildown,
@@ -19,14 +19,9 @@ func init() {
 }
 
 func runTaildown(cmd *cobra.Command, args []string) error {
-	hash, err := store.ResolvePrefix(args[0])
+	svc, err := store.Resolve(args[0])
 	if err != nil {
 		return err
-	}
-
-	svc, err := store.Load(hash)
-	if err != nil {
-		return fmt.Errorf("load service: %w", err)
 	}
 
 	if !svc.Tailnet {

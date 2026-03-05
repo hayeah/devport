@@ -11,7 +11,7 @@ import (
 var flagSignal int
 
 var signalCmd = &cobra.Command{
-	Use:   "signal <hash-prefix>",
+	Use:   "signal <target>",
 	Short: "Send a signal to a running service's supervisor (default: SIGHUP)",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSignal,
@@ -23,12 +23,12 @@ func init() {
 }
 
 func runSignal(cmd *cobra.Command, args []string) error {
-	hash, err := store.ResolvePrefix(args[0])
+	svc, err := store.Resolve(args[0])
 	if err != nil {
 		return err
 	}
 
-	supervisorPID, err := devport.HolderPID(store.LockPath(hash))
+	supervisorPID, err := devport.HolderPID(store.LockPath(svc.Hash))
 	if err != nil {
 		return fmt.Errorf("check lock holder: %w", err)
 	}
