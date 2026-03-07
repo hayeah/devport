@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -96,18 +97,41 @@ func runStartFile(path string) error {
 			portEnv = "PORT"
 		}
 
+		specCwd := cwd
+		if spec.Cwd != "" {
+			specCwd = spec.Cwd
+			if strings.HasPrefix(specCwd, "~/") {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return err
+				}
+				specCwd = filepath.Join(home, specCwd[2:])
+			} else if !filepath.IsAbs(specCwd) {
+				specCwd = filepath.Join(cwd, specCwd)
+			}
+		}
+
 		p := startParams{
 			Key:     spec.Key,
 			Cmd:     cmdArgs,
-			CWD:     cwd,
+			CWD:     specCwd,
 			PortEnv: portEnv,
 			NoPort:  spec.NoPort,
 			Tailnet: spec.Tailnet,
 		}
 
 		// Load env files if specified
+		// Resolve relative env paths against the service's cwd
 		if len(spec.Env) > 0 {
-			envMap, err := devport.LoadEnvFiles(spec.Env)
+			resolvedEnv := make([]string, len(spec.Env))
+			for i, e := range spec.Env {
+				if !strings.HasPrefix(e, "~/") && !filepath.IsAbs(e) {
+					resolvedEnv[i] = filepath.Join(specCwd, e)
+				} else {
+					resolvedEnv[i] = e
+				}
+			}
+			envMap, err := devport.LoadEnvFiles(resolvedEnv)
 			if err != nil {
 				name := spec.Key
 				if name == "" {
@@ -226,17 +250,20 @@ func startService(p startParams) (*devport.Service, error) {
 	var tmuxArgs []string
 	sessionExists := exec.Command("tmux", "has-session", "-t", "devport").Run() == nil
 	if sessionExists {
-		tmuxArgs = []string{"new-window", "-t", "devport", "-n", windowName, "-c", p.CWD, "--", devportBin}
+		tmuxArgs = []string{"new-window", "-t", "devport", "-n", windowName, "-c", p.CWD}
 	} else {
-		tmuxArgs = []string{"new-session", "-d", "-s", "devport", "-n", windowName, "-c", p.CWD, "--", devportBin}
+		tmuxArgs = []string{"new-session", "-d", "-s", "devport", "-n", windowName, "-c", p.CWD}
 	}
+
+	// Pass extra env vars via tmux -e flags
+	for _, e := range p.ExtraEnv {
+		tmuxArgs = append(tmuxArgs, "-e", e)
+	}
+
+	tmuxArgs = append(tmuxArgs, "--", devportBin)
 	tmuxArgs = append(tmuxArgs, runArgs...)
 
-	// Set extra env vars in the tmux environment
 	cmd := exec.Command("tmux", tmuxArgs...)
-	if len(p.ExtraEnv) > 0 {
-		cmd.Env = append(os.Environ(), p.ExtraEnv...)
-	}
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -13,6 +13,7 @@ type ServiceSpec struct {
 	NoPort  bool     `yaml:"no-port"`
 	Tailnet bool     `yaml:"tailnet"`
 	PortEnv string   `yaml:"port-env"`
+	Cwd     string   `yaml:"cwd"`
 	Env     EnvPaths `yaml:"env"`
 }
 
