@@ -61,6 +61,45 @@ devport session
   └── b7d2f1a8c3     ← devport start (no key)
 ```
 
+**Batch start from a config file:**
+
+```bash
+devport start -f devport.yaml
+```
+
+Where `devport.yaml` is a list of service specs:
+
+```yaml
+# String shorthand — unnamed service, default options
+- go run ./cli/service
+
+# Full form — named service with options
+- key: api-server
+  exec: go run ./cli/apiServer
+  no-port: true
+  env: ~/.env.secret
+
+# Multiple env files (later overrides earlier)
+- key: worker
+  exec: python3 worker.py
+  env:
+    - ~/.env.secret
+    - .env.local
+```
+
+Each entry is either a **string** (shorthand for just a command) or an **object** with fields:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `key` | string | (none) | Named key for the service |
+| `exec` | string | required | Command to run |
+| `no-port` | bool | false | Don't allocate a port |
+| `tailnet` | bool | false | Expose via Tailscale |
+| `port-env` | string | `PORT` | Env var name for the port |
+| `env` | string or list | (none) | Dotenv file paths to load (tilde-expanded) |
+
+Services start sequentially in YAML order. If one fails, the rest still start. A summary table is printed at the end.
+
 **Idempotent**: if the service is already running, prints existing info and exits — no duplicate supervisor.
 
 **Env snapshot**: captures `os.Environ()` at registration so the service can be reliably restarted from any shell.
