@@ -19,6 +19,8 @@ type Service struct {
 	CMD     []string  `json:"cmd"`
 	Env     []string  `json:"env,omitempty"`
 	LastUp  time.Time `json:"last_up"`
+	State   string    `json:"state,omitempty"`
+	Error   string    `json:"error,omitempty"`
 }
 
 // TmuxSession returns the shared devport tmux session name.

@@ -22,6 +22,7 @@ type ServiceInfo struct {
 	CWD     string   `json:"cwd"`
 	CMD     []string `json:"cmd"`
 	LastUp  string   `json:"last_up"`
+	Error   string   `json:"error,omitempty"`
 }
 
 var lsCmd = &cobra.Command{
@@ -44,7 +45,10 @@ func runLS(cmd *cobra.Command, args []string) error {
 	var infos []ServiceInfo
 	for _, svc := range services {
 		status := probeStatus(svc)
-		if flagActive && status != "running" {
+		if svc.State == "error" && status == "running" {
+			status = "error"
+		}
+		if flagActive && status != "running" && status != "error" {
 			continue
 		}
 		info := ServiceInfo{
@@ -58,6 +62,7 @@ func runLS(cmd *cobra.Command, args []string) error {
 			CWD:     svc.CWD,
 			CMD:     svc.CMD,
 			LastUp:  svc.LastUp.Format("2006-01-02T15:04:05Z"),
+			Error:   svc.Error,
 		}
 		if svc.Tailnet {
 			info.URL = fmt.Sprintf("https://%s.%s", svc.HashID, tailnetDNSSuffix())

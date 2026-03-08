@@ -90,11 +90,26 @@ func runRun(cmd *cobra.Command, args []string) error {
 		env = append(env, fmt.Sprintf("%s=%d", flagPortEnv, svc.Port))
 	}
 
+	tmuxTarget := "devport:" + svc.TmuxWindow()
+
 	supervisor := devport.NewSupervisor(devport.SupervisorConfig{
-		CMD: args,
-		CWD: cwd,
-		Env: env,
+		CMD:        args,
+		CWD:        cwd,
+		Env:        env,
+		Port:       svc.Port,
+		TmuxTarget: tmuxTarget,
 		OnLastUp: func() {
+			svc.LastUp = time.Now()
+			store.Save(svc)
+		},
+		OnError: func(errMsg string) {
+			svc.State = "error"
+			svc.Error = errMsg
+			store.Save(svc)
+		},
+		OnStarted: func() {
+			svc.State = ""
+			svc.Error = ""
 			svc.LastUp = time.Now()
 			store.Save(svc)
 		},

@@ -2,9 +2,12 @@ package devport
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -18,24 +21,28 @@ const (
 )
 
 type SupervisorConfig struct {
-	CMD      []string
-	CWD      string
-	Env      []string
-	OnLastUp func()
+	CMD        []string
+	CWD        string
+	Env        []string
+	Port       int    // port to check for binding after start
+	TmuxTarget string // tmux target (e.g. "devport:myservice") for pane capture
+	OnLastUp   func()
+	OnError    func(errMsg string) // called when child exits non-zero
+	OnStarted  func()             // called when port is confirmed bound
 }
 
 type Supervisor struct {
 	config    SupervisorConfig
 	mu        sync.Mutex
 	cmd       *exec.Cmd
-	done      chan struct{}
+	done      chan error
 	startedAt time.Time
 }
 
 func NewSupervisor(cfg SupervisorConfig) *Supervisor {
 	return &Supervisor{
 		config: cfg,
-		done:   make(chan struct{}),
+		done:   make(chan error),
 	}
 }
 
@@ -56,6 +63,9 @@ func (s *Supervisor) Run() error {
 		s.config.OnLastUp()
 	}
 
+	// Check port binding after initial start
+	s.checkPortStarted()
+
 	backoff := time.Second
 
 	for {
@@ -68,12 +78,17 @@ func (s *Supervisor) Run() error {
 			case syscall.SIGTSTP, syscall.SIGHUP:
 				backoff = time.Second
 				s.restartChild()
+				s.checkPortStarted()
 			}
-		case <-s.done:
+		case waitErr := <-s.done:
 			// Child exited on its own — restart with backoff
 			s.mu.Lock()
 			uptime := time.Since(s.startedAt)
 			s.mu.Unlock()
+
+			if waitErr != nil {
+				s.reportError(waitErr)
+			}
 
 			if uptime > CrashBackoffReset {
 				backoff = time.Second
@@ -92,6 +107,7 @@ func (s *Supervisor) Run() error {
 			if err := s.startChild(); err != nil {
 				return fmt.Errorf("restart failed: %w", err)
 			}
+			s.checkPortStarted()
 		case <-ticker.C:
 			if s.config.OnLastUp != nil {
 				s.config.OnLastUp()
@@ -145,15 +161,15 @@ func (s *Supervisor) startChild() error {
 
 	s.cmd = cmd
 	s.startedAt = time.Now()
-	s.done = make(chan struct{})
+	s.done = make(chan error)
 
 	go func() {
-		cmd.Wait()
+		waitErr := cmd.Wait()
 		s.mu.Lock()
 		done := s.done
 		s.mu.Unlock()
 		select {
-		case done <- struct{}{}:
+		case done <- waitErr:
 		default:
 		}
 	}()
@@ -178,7 +194,7 @@ func (s *Supervisor) killChild() {
 	// Drain the done channel so we don't trigger a restart
 	go func() {
 		select {
-		case <-s.done:
+		case <-s.done: //nolint:errcheck
 		case <-time.After(GracefulTimeout):
 		}
 	}()
@@ -201,4 +217,60 @@ func (s *Supervisor) restartChild() {
 	if err := s.startChild(); err != nil {
 		fmt.Fprintf(os.Stderr, "devport: restart failed: %v\n", err)
 	}
+}
+
+// reportError captures the tmux pane content and calls OnError.
+func (s *Supervisor) reportError(waitErr error) {
+	if s.config.OnError == nil {
+		return
+	}
+
+	var paneOutput string
+	if s.config.TmuxTarget != "" {
+		out, err := exec.Command("tmux", "capture-pane", "-p", "-S", "-", "-t", s.config.TmuxTarget).Output()
+		if err == nil {
+			paneOutput = StripANSI(strings.TrimSpace(string(out)))
+		}
+	}
+
+	errMsg := waitErr.Error()
+	if paneOutput != "" {
+		errMsg = paneOutput
+	}
+	s.config.OnError(errMsg)
+}
+
+const (
+	PortCheckTimeout  = 30 * time.Second
+	PortCheckInterval = 250 * time.Millisecond
+)
+
+// checkPortStarted polls until the configured port is bound, then calls OnStarted.
+func (s *Supervisor) checkPortStarted() {
+	if s.config.Port == 0 || s.config.OnStarted == nil {
+		return
+	}
+
+	go func() {
+		addr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+		deadline := time.Now().Add(PortCheckTimeout)
+		for time.Now().Before(deadline) {
+			conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+			if err == nil {
+				conn.Close()
+				fmt.Fprintf(os.Stderr, "devport: port %d is up\n", s.config.Port)
+				s.config.OnStarted()
+				return
+			}
+			time.Sleep(PortCheckInterval)
+		}
+		fmt.Fprintf(os.Stderr, "devport: port %d did not bind within %s\n", s.config.Port, PortCheckTimeout)
+	}()
+}
+
+var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[.*?[mGKHJP]`)
+
+// StripANSI removes ANSI escape sequences from a string.
+func StripANSI(s string) string {
+	return ansiRegexp.ReplaceAllString(s, "")
 }
