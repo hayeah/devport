@@ -67,15 +67,33 @@ func runRun(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-	} else if flagTailnet && !svc.Tailnet {
-		// Existing service, --tailnet requested but not yet enabled
-		fmt.Fprintf(os.Stderr, "devport: enabling tailnet for %s...\n", svc.HashID)
-		if err := devport.TailscaleUp(svc.HashID, svc.Port); err != nil {
-			return fmt.Errorf("tailscale up: %w", err)
+	} else {
+		// Existing service — update mutable fields from current invocation
+		dirty := false
+
+		if svc.CWD != cwd {
+			svc.CWD = cwd
+			dirty = true
 		}
-		svc.Tailnet = true
-		if err := store.Save(svc); err != nil {
-			return err
+		if !slicesEqual(svc.CMD, args) {
+			svc.CMD = args
+			dirty = true
+		}
+		svc.Env = os.Environ()
+
+		if flagTailnet && !svc.Tailnet {
+			fmt.Fprintf(os.Stderr, "devport: enabling tailnet for %s...\n", svc.HashID)
+			if err := devport.TailscaleUp(svc.HashID, svc.Port); err != nil {
+				return fmt.Errorf("tailscale up: %w", err)
+			}
+			svc.Tailnet = true
+			dirty = true
+		}
+
+		if dirty {
+			if err := store.Save(svc); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -170,6 +188,18 @@ func registerService(hash, cwd string, args []string) (*devport.Service, error) 
 	}
 
 	return svc, nil
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func printServiceJSON(svc *devport.Service) error {
