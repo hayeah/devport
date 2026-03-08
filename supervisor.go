@@ -162,12 +162,10 @@ func (s *Supervisor) startChild() error {
 	s.cmd = cmd
 	s.startedAt = time.Now()
 	s.done = make(chan error)
+	done := s.done // capture for goroutine — ensures it sends to THIS generation's channel
 
 	go func() {
 		waitErr := cmd.Wait()
-		s.mu.Lock()
-		done := s.done
-		s.mu.Unlock()
 		select {
 		case done <- waitErr:
 		default:
